@@ -77,19 +77,26 @@ def calculate_current_ratio(current_assets: float, current_liabilities: float) -
     return safe_divide(current_assets, current_liabilities, 0.0)
 
 
-def calculate_borrowing_base(accounts_receivable: float, inventory_value: float) -> float:
+def calculate_borrowing_base(accounts_receivable: float, inventory_value: float,
+                            ar_advance_rate: Optional[float] = None,
+                            inventory_advance_rate: Optional[float] = None) -> float:
     """
-    Calculate borrowing base using standard advance rates
+    Calculate borrowing base using advance rates (supports dynamic rates for scenario testing)
     
     Args:
         accounts_receivable: Total accounts receivable
         inventory_value: Total inventory value
+        ar_advance_rate: Optional AR advance rate (defaults to config value)
+        inventory_advance_rate: Optional inventory advance rate (defaults to config value)
         
     Returns:
         Borrowing base amount
     """
-    ar_component = accounts_receivable * BORROWING_BASE_AR_PERCENT
-    inventory_component = inventory_value * BORROWING_BASE_INVENTORY_PERCENT
+    ar_rate = ar_advance_rate if ar_advance_rate is not None else BORROWING_BASE_AR_PERCENT
+    inv_rate = inventory_advance_rate if inventory_advance_rate is not None else BORROWING_BASE_INVENTORY_PERCENT
+    
+    ar_component = accounts_receivable * ar_rate
+    inventory_component = inventory_value * inv_rate
     return ar_component + inventory_component
 
 
@@ -111,19 +118,24 @@ def calculate_revenue_loc_range(annual_revenue: float) -> Tuple[float, float]:
 def calculate_cash_conversion_cycle(
     receivable_days: float,
     inventory_days: float,
-    payable_days: float
+    payable_days: float,
+    business_type: str = 'Product'
 ) -> float:
     """
     Calculate Cash Conversion Cycle (CCC)
+    For service businesses, inventory days is excluded from calculation
     
     Args:
         receivable_days: Days sales outstanding (DSO)
         inventory_days: Days inventory outstanding (DIO)
         payable_days: Days payable outstanding (DPO)
+        business_type: 'Service' or 'Product' (default: 'Product')
         
     Returns:
         Cash conversion cycle in days
     """
+    if business_type == 'Service':
+        return receivable_days - payable_days
     return receivable_days + inventory_days - payable_days
 
 

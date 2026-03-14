@@ -3,9 +3,28 @@ Configuration file for Business Financing Readiness Tool
 Contains constants, weights, and configuration parameters
 """
 
-# Borrowing Base Percentages
+# Borrowing Base Percentages (Default - Balanced)
 BORROWING_BASE_AR_PERCENT = 0.80
 BORROWING_BASE_INVENTORY_PERCENT = 0.50
+
+# Lender Risk Tolerance Scenarios
+RISK_TOLERANCE_SCENARIOS = {
+    'Conservative': {
+        'ar_advance': 0.70,
+        'inventory_advance': 0.40,
+        'description': 'Lower advance rates, higher collateral requirements'
+    },
+    'Balanced': {
+        'ar_advance': 0.80,
+        'inventory_advance': 0.50,
+        'description': 'Standard advance rates, typical lending terms'
+    },
+    'Aggressive': {
+        'ar_advance': 0.85,
+        'inventory_advance': 0.60,
+        'description': 'Higher advance rates, more flexible terms'
+    }
+}
 
 # Revenue-based LOC Range
 REVENUE_LOC_LOW_PERCENT = 0.05

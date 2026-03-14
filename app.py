@@ -14,7 +14,9 @@ from config import (
     PAGE_CONFIG,
     INDUSTRIES,
     BUSINESS_TYPES,
-    COLORS
+    COLORS,
+    RISK_TOLERANCE_SCENARIOS,
+    REVENUE_LOC_LOW_PERCENT
 )
 from calculations import (
     calculate_adjusted_cash_flow,
@@ -30,8 +32,7 @@ from calculations import (
     calculate_readiness_score,
     calculate_confidence_level,
     get_financing_recommendation,
-    get_improvement_suggestions,
-    validate_inputs
+    get_improvement_suggestions
 )
 from json_io import (
     create_project_data,
@@ -39,6 +40,21 @@ from json_io import (
     load_project,
     list_saved_projects,
     export_to_json_string
+)
+from validation import (
+    validate_all_inputs,
+    get_validation_summary,
+    validate_business_logic
+)
+from ui_components import (
+    render_lender_metrics_info_panel,
+    render_assumptions_panel,
+    render_readiness_status_badge,
+    create_enhanced_ccc_chart,
+    create_enhanced_readiness_gauge,
+    render_metric_cards_row,
+    render_lender_view_section,
+    render_financing_summary_block
 )
 
 
@@ -52,97 +68,19 @@ def initialize_session_state():
         st.session_state.project_name = "My Business Analysis"
     if 'project_notes' not in st.session_state:
         st.session_state.project_notes = ""
+    if 'lender_view_mode' not in st.session_state:
+        st.session_state.lender_view_mode = False
+    if 'risk_tolerance' not in st.session_state:
+        st.session_state.risk_tolerance = 'Balanced'
 
 
-def create_ccc_chart(receivable_days, inventory_days, payable_days, ccc):
-    """Create cash conversion cycle bar chart"""
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        name='Receivable Days',
-        x=['Days'],
-        y=[receivable_days],
-        marker_color=COLORS['primary'],
-        text=[f'{receivable_days:.0f}'],
-        textposition='inside'
-    ))
-    
-    fig.add_trace(go.Bar(
-        name='Inventory Days',
-        x=['Days'],
-        y=[inventory_days],
-        marker_color=COLORS['info'],
-        text=[f'{inventory_days:.0f}'],
-        textposition='inside'
-    ))
-    
-    fig.add_trace(go.Bar(
-        name='Payable Days',
-        x=['Days'],
-        y=[-payable_days],
-        marker_color=COLORS['success'],
-        text=[f'{payable_days:.0f}'],
-        textposition='inside'
-    ))
-    
-    fig.update_layout(
-        title='Cash Conversion Cycle Components',
-        yaxis_title='Days',
-        barmode='relative',
-        height=400,
-        showlegend=True,
-        annotations=[
-            dict(
-                x=0,
-                y=ccc,
-                text=f'CCC: {ccc:.0f} days',
-                showarrow=True,
-                arrowhead=2,
-                ax=40,
-                ay=-40,
-                font=dict(size=14, color=COLORS['danger'])
-            )
-        ]
-    )
-    
-    return fig
-
-
-def create_readiness_gauge(score):
-    """Create financing readiness indicator gauge"""
-    if score >= 75:
-        color = COLORS['success']
-        label = 'Strong'
-    elif score >= 50:
-        color = COLORS['warning']
-        label = 'Moderate'
-    else:
-        color = COLORS['danger']
-        label = 'Weak'
-    
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=score,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': f"Readiness: {label}"},
-        gauge={
-            'axis': {'range': [None, 100]},
-            'bar': {'color': color},
-            'steps': [
-                {'range': [0, 50], 'color': "lightgray"},
-                {'range': [50, 75], 'color': "gray"},
-                {'range': [75, 100], 'color': "darkgray"}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': 90
-            }
-        }
-    ))
-    
-    fig.update_layout(height=300)
-    return fig
+def reset_analysis():
+    """Reset all session state for new analysis"""
+    keys_to_keep = ['lender_view_mode', 'risk_tolerance']
+    for key in list(st.session_state.keys()):
+        if key not in keys_to_keep:
+            del st.session_state[key]
+    initialize_session_state()
 
 
 def main():
@@ -253,6 +191,41 @@ def main():
                 mime="application/json",
                 use_container_width=True
             )
+        
+        st.markdown("---")
+        
+        # Scenario Testing - Risk Tolerance
+        st.subheader("🎯 Scenario Testing")
+        st.session_state.risk_tolerance = st.selectbox(
+            "Lender Risk Tolerance",
+            options=list(RISK_TOLERANCE_SCENARIOS.keys()),
+            index=list(RISK_TOLERANCE_SCENARIOS.keys()).index(st.session_state.risk_tolerance),
+            help="Adjust advance rates based on lender risk profile"
+        )
+        
+        scenario = RISK_TOLERANCE_SCENARIOS[st.session_state.risk_tolerance]
+        st.caption(scenario['description'])
+        st.caption(f"AR: {scenario['ar_advance']*100:.0f}% | Inventory: {scenario['inventory_advance']*100:.0f}%")
+        
+        st.markdown("---")
+        
+        # Lender View Mode Toggle
+        st.subheader("👔 View Mode")
+        st.session_state.lender_view_mode = st.toggle(
+            "Lender View Mode",
+            value=st.session_state.lender_view_mode,
+            help="Reorganize results for lender perspective"
+        )
+        
+        st.markdown("---")
+        
+        # Reset Button
+        if st.button("🔄 Start New Analysis", type="secondary", use_container_width=True):
+            reset_analysis()
+            st.rerun()
+        
+        # Lender Metrics Information Panel
+        render_lender_metrics_info_panel()
     
     # Main content tabs
     tab1, tab2 = st.tabs(["📊 Analysis", "📝 Results & Recommendations"])
@@ -343,9 +316,7 @@ def main():
         
         # Collateral
         with st.expander("🏦 Collateral", expanded=True):
-            col1, col2 = st.columns(2)
-            
-            with col1:
+            if business_type == 'Service':
                 accounts_receivable = st.number_input(
                     "Accounts Receivable ($)",
                     min_value=0.0,
@@ -353,52 +324,93 @@ def main():
                     step=5000.0,
                     format="%.2f"
                 )
-            
-            with col2:
-                inventory_value = st.number_input(
-                    "Inventory Value ($)",
-                    min_value=0.0,
-                    value=st.session_state.inputs.get('inventory_value', 50000.0),
-                    step=5000.0,
-                    format="%.2f"
-                )
+                inventory_value = 0.0
+                st.info("💡 Service businesses typically don't carry inventory. Inventory fields are hidden.")
+            else:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    accounts_receivable = st.number_input(
+                        "Accounts Receivable ($)",
+                        min_value=0.0,
+                        value=st.session_state.inputs.get('accounts_receivable', 80000.0),
+                        step=5000.0,
+                        format="%.2f"
+                    )
+                
+                with col2:
+                    inventory_value = st.number_input(
+                        "Inventory Value ($)",
+                        min_value=0.0,
+                        value=st.session_state.inputs.get('inventory_value', 50000.0),
+                        step=5000.0,
+                        format="%.2f"
+                    )
         
         # Working Capital Timing
         with st.expander("⏱️ Working Capital Timing", expanded=True):
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                receivable_days = st.number_input(
-                    "Receivable Days (DSO)",
-                    min_value=0.0,
-                    max_value=365.0,
-                    value=st.session_state.inputs.get('receivable_days', 45.0),
-                    step=1.0,
-                    format="%.0f",
-                    help="Days Sales Outstanding - average days to collect payment"
-                )
-            
-            with col2:
-                inventory_days = st.number_input(
-                    "Inventory Days (DIO)",
-                    min_value=0.0,
-                    max_value=365.0,
-                    value=st.session_state.inputs.get('inventory_days', 30.0),
-                    step=1.0,
-                    format="%.0f",
-                    help="Days Inventory Outstanding - average days inventory is held"
-                )
-            
-            with col3:
-                payable_days = st.number_input(
-                    "Payable Days (DPO)",
-                    min_value=0.0,
-                    max_value=365.0,
-                    value=st.session_state.inputs.get('payable_days', 30.0),
-                    step=1.0,
-                    format="%.0f",
-                    help="Days Payable Outstanding - average days to pay suppliers"
-                )
+            if business_type == 'Service':
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    receivable_days = st.number_input(
+                        "Receivable Days (DSO)",
+                        min_value=0.0,
+                        max_value=365.0,
+                        value=st.session_state.inputs.get('receivable_days', 45.0),
+                        step=1.0,
+                        format="%.0f",
+                        help="Days Sales Outstanding - average days to collect payment"
+                    )
+                
+                with col2:
+                    payable_days = st.number_input(
+                        "Payable Days (DPO)",
+                        min_value=0.0,
+                        max_value=365.0,
+                        value=st.session_state.inputs.get('payable_days', 30.0),
+                        step=1.0,
+                        format="%.0f",
+                        help="Days Payable Outstanding - average days to pay suppliers"
+                    )
+                
+                inventory_days = 0.0
+                st.info("💡 Service businesses don't track inventory days.")
+            else:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    receivable_days = st.number_input(
+                        "Receivable Days (DSO)",
+                        min_value=0.0,
+                        max_value=365.0,
+                        value=st.session_state.inputs.get('receivable_days', 45.0),
+                        step=1.0,
+                        format="%.0f",
+                        help="Days Sales Outstanding - average days to collect payment"
+                    )
+                
+                with col2:
+                    inventory_days = st.number_input(
+                        "Inventory Days (DIO)",
+                        min_value=0.0,
+                        max_value=365.0,
+                        value=st.session_state.inputs.get('inventory_days', 30.0),
+                        step=1.0,
+                        format="%.0f",
+                        help="Days Inventory Outstanding - average days inventory is held"
+                    )
+                
+                with col3:
+                    payable_days = st.number_input(
+                        "Payable Days (DPO)",
+                        min_value=0.0,
+                        max_value=365.0,
+                        value=st.session_state.inputs.get('payable_days', 30.0),
+                        step=1.0,
+                        format="%.0f",
+                        help="Days Payable Outstanding - average days to pay suppliers"
+                    )
         
         # Project Notes
         with st.expander("📝 Project Notes", expanded=False):
@@ -430,21 +442,36 @@ def main():
                 'payable_days': payable_days
             }
             
-            # Validate inputs
-            is_valid, errors = validate_inputs(inputs)
+            # Validate inputs with enhanced validation
+            is_valid, errors = validate_all_inputs(inputs, business_type)
             
             if not is_valid:
-                st.error("**Validation Errors:**")
-                for error in errors:
-                    st.error(f"• {error}")
+                st.error(get_validation_summary(errors))
             else:
+                # Check for business logic warnings
+                warnings = validate_business_logic(inputs, business_type)
+                if warnings:
+                    with st.expander("⚠️ Business Logic Warnings", expanded=True):
+                        for warning in warnings:
+                            st.warning(f"**{warning.field}**: {warning.message}")
+                
+                # Get scenario parameters
+                scenario = RISK_TOLERANCE_SCENARIOS[st.session_state.risk_tolerance]
+                ar_rate = scenario['ar_advance']
+                inv_rate = scenario['inventory_advance']
+                
                 # Perform calculations
                 cash_flow = calculate_adjusted_cash_flow(net_income, owner_addbacks)
                 dscr = calculate_dscr(cash_flow, annual_debt_payments)
                 current_ratio = calculate_current_ratio(current_assets, current_liabilities)
-                borrowing_base = calculate_borrowing_base(accounts_receivable, inventory_value)
+                borrowing_base = calculate_borrowing_base(
+                    accounts_receivable, 
+                    inventory_value,
+                    ar_advance_rate=ar_rate,
+                    inventory_advance_rate=inv_rate
+                )
                 revenue_low, revenue_high = calculate_revenue_loc_range(annual_revenue)
-                ccc = calculate_cash_conversion_cycle(receivable_days, inventory_days, payable_days)
+                ccc = calculate_cash_conversion_cycle(receivable_days, inventory_days, payable_days, business_type)
                 daily_revenue = calculate_daily_revenue(annual_revenue)
                 working_capital_gap = calculate_working_capital_gap(daily_revenue, ccc)
                 loc_low, loc_high = calculate_final_loc_range(
@@ -460,7 +487,7 @@ def main():
                     years_in_business, net_income, dscr, current_ratio, accounts_receivable, annual_revenue
                 )
                 
-                # Store results
+                # Store results with scenario info
                 results = {
                     'cash_flow': cash_flow,
                     'dscr': dscr,
@@ -476,7 +503,9 @@ def main():
                     'primary_constraint': primary_constraint,
                     'readiness_score': readiness_score,
                     'confidence_level': confidence_level,
-                    'conditions_met': conditions_met
+                    'conditions_met': conditions_met,
+                    'ar_rate': ar_rate,
+                    'inv_rate': inv_rate
                 }
                 
                 st.session_state.inputs = inputs
@@ -488,64 +517,132 @@ def main():
         if st.session_state.results:
             results = st.session_state.results
             inputs = st.session_state.inputs
+            business_type = inputs.get('business_type', 'Product')
             
-            # Summary Panel
-            st.header("📊 Summary")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric(
-                    "LOC Range",
-                    f"${results['loc_low']:,.0f} - ${results['loc_high']:,.0f}"
+            # Check if lender view mode is enabled
+            if st.session_state.lender_view_mode:
+                # LENDER VIEW MODE
+                st.header("🏦 Lender View - Financing Analysis")
+                
+                # Business Profile Summary
+                render_lender_view_section("Business Profile Summary", {
+                    "Business Name": st.session_state.project_name,
+                    "Industry": inputs['industry'],
+                    "Business Type": business_type,
+                    "Years in Business": f"{inputs['years_in_business']:.1f} years",
+                    "Annual Revenue": f"${inputs['annual_revenue']:,.0f}"
+                })
+                
+                # Financial Capacity
+                render_lender_view_section("Financial Capacity", {
+                    "Net Income": f"${inputs['net_income']:,.0f}",
+                    "Adjusted Cash Flow": f"${results['cash_flow']:,.0f}",
+                    "DSCR": f"{results['dscr']:.2f}" + (" ✅" if results['dscr'] >= 1.25 else " ⚠️"),
+                    "Annual Debt Payments": f"${inputs['annual_debt_payments']:,.0f}"
+                })
+                
+                # Collateral Support
+                render_lender_view_section("Collateral Support", {
+                    "Accounts Receivable": f"${inputs['accounts_receivable']:,.0f}",
+                    "Inventory Value": f"${inputs['inventory_value']:,.0f}" if business_type == 'Product' else "N/A (Service Business)",
+                    "Borrowing Base": f"${results['borrowing_base']:,.0f}",
+                    "AR Advance Rate": f"{results['ar_rate']*100:.0f}%",
+                    "Inventory Advance Rate": f"{results['inv_rate']*100:.0f}%" if business_type == 'Product' else "N/A"
+                })
+                
+                # Liquidity Indicators
+                render_lender_view_section("Liquidity Indicators", {
+                    "Current Assets": f"${inputs['current_assets']:,.0f}",
+                    "Current Liabilities": f"${inputs['current_liabilities']:,.0f}",
+                    "Current Ratio": f"{results['current_ratio']:.2f}" + (" ✅" if results['current_ratio'] >= 1.2 else " ⚠️"),
+                    "Working Capital": f"${inputs['current_assets'] - inputs['current_liabilities']:,.0f}"
+                })
+                
+                # Working Capital Analysis
+                render_lender_view_section("Working Capital Analysis", {
+                    "Receivable Days (DSO)": f"{inputs['receivable_days']:.0f} days",
+                    "Inventory Days (DIO)": f"{inputs['inventory_days']:.0f} days" if business_type == 'Product' else "N/A",
+                    "Payable Days (DPO)": f"{inputs['payable_days']:.0f} days",
+                    "Cash Conversion Cycle": f"{results['ccc']:.0f} days",
+                    "Working Capital Gap": f"${results['working_capital_gap']:,.0f}"
+                })
+                
+                # LOC Recommendation
+                render_lender_view_section("Line of Credit Recommendation", {
+                    "Recommended LOC Range": f"${results['loc_low']:,.0f} - ${results['loc_high']:,.0f}",
+                    "Primary Constraint": results['primary_constraint'],
+                    "Financing Readiness Score": f"{results['readiness_score']:.1f}/100 - {render_readiness_status_badge(results['readiness_score'])}",
+                    "Confidence Level": f"{results['confidence_level']} ({results['conditions_met']}/5 conditions met)"
+                })
+                
+            else:
+                # STANDARD VIEW MODE
+                # Enhanced Financing Summary Block
+                render_financing_summary_block(results)
+                
+                st.markdown("---")
+                
+                # Metric Cards Row
+                st.header("📊 Key Financial Metrics")
+                metric_cards_data = {
+                    'DSCR': {
+                        'value': results['dscr'],
+                        'status': 'Strong' if results['dscr'] >= 1.25 else 'Weak',
+                        'help': 'Debt Service Coverage Ratio - measures ability to cover debt payments'
+                    },
+                    'Current Ratio': {
+                        'value': results['current_ratio'],
+                        'status': 'Healthy' if results['current_ratio'] >= 1.2 else 'Low',
+                        'help': 'Current Assets / Current Liabilities - measures liquidity'
+                    },
+                    'Borrowing Base': {
+                        'value': results['borrowing_base'],
+                        'status': 'Available',
+                        'help': f"Collateral value: AR ({results['ar_rate']*100:.0f}%) + Inventory ({results['inv_rate']*100:.0f}%)"
+                    },
+                    'WC Gap': {
+                        'value': results['working_capital_gap'],
+                        'status': f"{results['ccc']:.0f} days",
+                        'help': 'Working capital needed based on cash conversion cycle'
+                    }
+                }
+                render_metric_cards_row(metric_cards_data)
+                
+                st.markdown("---")
+                
+                # Visualizations
+                st.header("📈 Visualizations")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.plotly_chart(
+                        create_enhanced_ccc_chart(
+                            inputs['receivable_days'],
+                            inputs['inventory_days'],
+                            inputs['payable_days'],
+                            results['ccc'],
+                            business_type
+                        ),
+                        use_container_width=True
+                    )
+                
+                with col2:
+                    st.plotly_chart(
+                        create_enhanced_readiness_gauge(results['readiness_score']),
+                        use_container_width=True
+                    )
+                
+                st.markdown("---")
+                
+                # Assumptions Panel
+                render_assumptions_panel(
+                    results['ar_rate'],
+                    results['inv_rate'],
+                    REVENUE_LOC_LOW_PERCENT
                 )
-            
-            with col2:
-                st.metric(
-                    "Readiness Score",
-                    f"{results['readiness_score']:.1f}/100"
-                )
-            
-            with col3:
-                st.metric(
-                    "Confidence Level",
-                    results['confidence_level'],
-                    f"{results['conditions_met']}/5 conditions"
-                )
-            
-            with col4:
-                st.metric(
-                    "Cash Conversion Cycle",
-                    f"{results['ccc']:.0f} days"
-                )
-            
-            st.info(f"**Primary Constraint:** {results['primary_constraint']}")
-            
-            st.markdown("---")
-            
-            # Visualizations
-            st.header("📈 Visualizations")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.plotly_chart(
-                    create_ccc_chart(
-                        inputs['receivable_days'],
-                        inputs['inventory_days'],
-                        inputs['payable_days'],
-                        results['ccc']
-                    ),
-                    use_container_width=True
-                )
-            
-            with col2:
-                st.plotly_chart(
-                    create_readiness_gauge(results['readiness_score']),
-                    use_container_width=True
-                )
-            
-            st.markdown("---")
+                
+                st.markdown("---")
             
             # Key Metrics Table
             st.header("📋 Key Metrics")
