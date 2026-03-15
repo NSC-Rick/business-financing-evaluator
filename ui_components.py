@@ -378,38 +378,46 @@ def render_reset_button():
 
 def render_financing_summary_block(results: Dict):
     """
-    Render enhanced financing summary block
+    Render enhanced financing summary block using native Streamlit components
     
     Args:
         results: Dictionary of calculation results
     """
     st.markdown("### 💼 Financing Summary")
     
-    # Create summary box
-    summary_html = f"""
-    <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid {COLORS['primary']};">
-        <h4 style="margin-top: 0;">Recommended Line of Credit Range</h4>
-        <h2 style="color: {COLORS['primary']}; margin: 10px 0;">${results['loc_low']:,.0f} - ${results['loc_high']:,.0f}</h2>
-        
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px;">
-            <div>
-                <p style="margin: 5px 0; color: #666;"><strong>Readiness Score:</strong></p>
-                <p style="margin: 5px 0; font-size: 1.2em;">{results['readiness_score']:.1f}/100</p>
-            </div>
-            <div>
-                <p style="margin: 5px 0; color: #666;"><strong>Confidence Level:</strong></p>
-                <p style="margin: 5px 0; font-size: 1.2em;">{results['confidence_level']}</p>
-            </div>
-            <div>
-                <p style="margin: 5px 0; color: #666;"><strong>Primary Constraint:</strong></p>
-                <p style="margin: 5px 0; font-size: 1.2em;">{results['primary_constraint']}</p>
-            </div>
-            <div>
-                <p style="margin: 5px 0; color: #666;"><strong>Cash Conversion Cycle:</strong></p>
-                <p style="margin: 5px 0; font-size: 1.2em;">{results['ccc']:.0f} days</p>
-            </div>
-        </div>
-    </div>
-    """
+    # Main LOC Range Display
+    st.info(f"**Recommended Line of Credit Range**")
+    st.markdown(f"## ${results['loc_low']:,.0f} - ${results['loc_high']:,.0f}")
     
-    st.markdown(summary_html, unsafe_allow_html=True)
+    # Readiness Progress Bar
+    st.progress(results['readiness_score'] / 100)
+    
+    # Key Metrics in Native Streamlit Columns
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric(
+            label="Readiness Score",
+            value=f"{results['readiness_score']:.1f}/100"
+        )
+    
+    with col2:
+        st.metric(
+            label="Confidence Level",
+            value=results['confidence_level'],
+            delta=f"{results['conditions_met']}/5 conditions met"
+        )
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        st.metric(
+            label="Primary Constraint",
+            value=results['primary_constraint']
+        )
+    
+    with col4:
+        st.metric(
+            label="Cash Conversion Cycle",
+            value=f"{results['ccc']:.0f} days"
+        )
