@@ -383,29 +383,20 @@ def render_financing_summary_block(results: Dict):
     Args:
         results: Dictionary of calculation results
     """
-    st.markdown("### 💼 Financing Summary")
+    st.subheader("� Financing Assessment")
     
-    # Main LOC Range Display
-    st.info(f"**Recommended Line of Credit Range**")
-    st.markdown(f"## ${results['loc_low']:,.0f} - ${results['loc_high']:,.0f}")
-    
-    # Readiness Progress Bar
-    st.progress(results['readiness_score'] / 100)
-    
-    # Key Metrics in Native Streamlit Columns
     col1, col2 = st.columns(2)
     
     with col1:
         st.metric(
             label="Readiness Score",
-            value=f"{results['readiness_score']:.1f}/100"
+            value=f"{results['readiness_score']:.0f}/100"
         )
     
     with col2:
         st.metric(
             label="Confidence Level",
-            value=results['confidence_level'],
-            delta=f"{results['conditions_met']}/5 conditions met"
+            value=results['confidence_level']
         )
     
     col3, col4 = st.columns(2)
@@ -421,3 +412,5 @@ def render_financing_summary_block(results: Dict):
             label="Cash Conversion Cycle",
             value=f"{results['ccc']:.0f} days"
         )
+    
+    st.progress(results['readiness_score'] / 100)
