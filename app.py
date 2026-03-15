@@ -54,7 +54,8 @@ from ui_components import (
     create_enhanced_readiness_gauge,
     render_metric_cards_row,
     render_lender_view_section,
-    render_financing_summary_block
+    render_financing_summary_block,
+    render_borrower_strength_panel
 )
 
 
@@ -483,6 +484,21 @@ def main():
                 readiness_score = calculate_readiness_score(
                     annual_revenue, cash_flow, dscr, current_ratio, borrowing_base, years_in_business
                 )
+                
+                # Borrower Strength Classification
+                if readiness_score >= 80:
+                    borrower_strength = "Strong Borrower"
+                    risk_level = "Low Risk"
+                    gauge_color = "green"
+                elif readiness_score >= 60:
+                    borrower_strength = "Moderate Borrower"
+                    risk_level = "Moderate Risk"
+                    gauge_color = "orange"
+                else:
+                    borrower_strength = "Weak Borrower"
+                    risk_level = "High Risk"
+                    gauge_color = "red"
+                
                 confidence_level, conditions_met = calculate_confidence_level(
                     years_in_business, net_income, dscr, current_ratio, accounts_receivable, annual_revenue
                 )
@@ -505,7 +521,10 @@ def main():
                     'confidence_level': confidence_level,
                     'conditions_met': conditions_met,
                     'ar_rate': ar_rate,
-                    'inv_rate': inv_rate
+                    'inv_rate': inv_rate,
+                    'borrower_strength': borrower_strength,
+                    'risk_level': risk_level,
+                    'gauge_color': gauge_color
                 }
                 
                 st.session_state.inputs = inputs
@@ -575,10 +594,22 @@ def main():
                     "Confidence Level": f"{results['confidence_level']} ({results['conditions_met']}/5 conditions met)"
                 })
                 
+                # Borrower Strength & Risk Assessment
+                render_lender_view_section("Borrower Strength & Risk Assessment", {
+                    "Borrower Strength": results['borrower_strength'],
+                    "Risk Level": results['risk_level'],
+                    "Credit Readiness": f"{results['readiness_score']:.0f}/100"
+                })
+                
             else:
                 # STANDARD VIEW MODE
                 # Enhanced Financing Summary Block
                 render_financing_summary_block(results)
+                
+                st.markdown("---")
+                
+                # Borrower Strength Assessment Panel
+                render_borrower_strength_panel(results)
                 
                 st.markdown("---")
                 

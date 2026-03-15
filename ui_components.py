@@ -414,3 +414,33 @@ def render_financing_summary_block(results: Dict):
         )
     
     st.progress(results['readiness_score'] / 100)
+
+
+def render_borrower_strength_panel(results: Dict):
+    """
+    Render borrower strength assessment panel with visual gauge
+    
+    Args:
+        results: Dictionary of calculation results including borrower_strength, risk_level, readiness_score
+    """
+    st.subheader("Borrower Strength Assessment")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric(
+            label="Borrower Strength",
+            value=results['borrower_strength']
+        )
+    
+    with col2:
+        st.metric(
+            label="Risk Level",
+            value=results['risk_level']
+        )
+    
+    st.write("### Credit Readiness Indicator")
+    
+    st.progress(results['readiness_score'] / 100)
+    
+    st.caption(f"Readiness Score: {results['readiness_score']:.0f}/100")
