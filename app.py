@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 import os
+import json
 
 from config import (
     PAGE_CONFIG,
@@ -229,7 +230,7 @@ def main():
         render_lender_metrics_info_panel()
     
     # Main content tabs
-    tab1, tab2 = st.tabs(["📊 Analysis", "📝 Results & Recommendations"])
+    tab1, tab2, tab3 = st.tabs(["📊 Analysis", "📝 Results & Recommendations", "💧 Cash Flow LOC Analysis"])
     
     with tab1:
         # Input sections
@@ -738,6 +739,455 @@ def main():
             
         else:
             st.info("👈 Please complete the analysis in the 'Analysis' tab first.")
+    
+    with tab3:
+        st.header("💧 Cash Flow LOC Analysis")
+        st.markdown("""
+        **Cash-Flow-Driven LOC Sizing** — Calculate LOC based on your actual projected cash trough, 
+        not revenue percentages. This provides a defensible, lender-ready methodology.
+        """)
+        
+        # Initialize cash flow data in session state if not exists
+        if 'cash_flow_data' not in st.session_state:
+            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            st.session_state.cash_flow_data = pd.DataFrame({
+                'Month': months,
+                'Cash In': [75000.0] * 12,
+                'Operating Expenses': [50000.0] * 12,
+                'Debt Payments': [5000.0] * 12
+            })
+        
+        # Configuration Section
+        st.subheader("⚙️ Configuration")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            starting_cash = st.number_input(
+                "Starting Cash Balance ($)",
+                min_value=0.0,
+                value=25000.0,
+                step=5000.0,
+                help="Your current cash on hand at the beginning of the projection period"
+            )
+        
+        with col2:
+            buffer_percentage = st.slider(
+                "Safety Buffer (%)",
+                min_value=0,
+                max_value=50,
+                value=20,
+                step=5,
+                help="Additional buffer above the minimum LOC requirement"
+            )
+        
+        with col3:
+            existing_loc_limit = st.number_input(
+                "Existing LOC Limit ($)",
+                min_value=0.0,
+                value=0.0,
+                step=5000.0,
+                help="Your current line of credit limit (if any)"
+            )
+        
+        st.markdown("---")
+        
+        # Monthly Cash Flow Input Table
+        st.subheader("📊 12-Month Cash Flow Projection")
+        st.markdown("**Edit the table below with your projected monthly cash flows:**")
+        
+        edited_cash_flow = st.data_editor(
+            st.session_state.cash_flow_data,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="fixed",
+            column_config={
+                "Month": st.column_config.TextColumn("Month", disabled=True, width="small"),
+                "Cash In": st.column_config.NumberColumn(
+                    "Cash In ($)",
+                    format="$%.0f",
+                    help="Total cash received (revenue, collections, etc.)"
+                ),
+                "Operating Expenses": st.column_config.NumberColumn(
+                    "Operating Expenses ($)",
+                    format="$%.0f",
+                    help="All operating expenses (payroll, rent, supplies, etc.)"
+                ),
+                "Debt Payments": st.column_config.NumberColumn(
+                    "Debt Payments ($)",
+                    format="$%.0f",
+                    help="Debt service, loan payments, etc."
+                )
+            }
+        )
+        
+        # Update session state
+        st.session_state.cash_flow_data = edited_cash_flow
+        
+        st.markdown("---")
+        
+        # Calculate Button
+        if st.button("🔍 Calculate Cash Trough & LOC Requirement", type="primary", use_container_width=True):
+            # Calculate running cash balances
+            months = edited_cash_flow['Month'].tolist()
+            cash_in = edited_cash_flow['Cash In'].tolist()
+            operating_expenses = edited_cash_flow['Operating Expenses'].tolist()
+            debt_payments = edited_cash_flow['Debt Payments'].tolist()
+            
+            # Calculate monthly net cash flow and running balances
+            beginning_balance = []
+            ending_balance = []
+            net_flow = []
+            
+            current_balance = starting_cash
+            
+            for i in range(12):
+                beginning_balance.append(current_balance)
+                
+                total_out = operating_expenses[i] + debt_payments[i]
+                monthly_net = cash_in[i] - total_out
+                net_flow.append(monthly_net)
+                
+                current_balance = current_balance + monthly_net
+                ending_balance.append(current_balance)
+            
+            # Find the cash trough (lowest point)
+            lowest_cash = min(ending_balance)
+            trough_month_idx = ending_balance.index(lowest_cash)
+            trough_month = months[trough_month_idx]
+            
+            # Calculate LOC requirements
+            if lowest_cash < 0:
+                minimum_loc = abs(lowest_cash)
+            else:
+                minimum_loc = 0
+            
+            recommended_loc = minimum_loc * (1 + buffer_percentage / 100)
+            stress_loc = recommended_loc * 1.15
+            
+            # Calculate statistics
+            total_cash_in = sum(cash_in)
+            total_cash_out = sum(operating_expenses) + sum(debt_payments)
+            avg_monthly_net = (total_cash_in - total_cash_out) / 12
+            negative_months = sum(1 for balance in ending_balance if balance < 0)
+            
+            # Store results in session state
+            st.session_state.cash_trough_results = {
+                'months': months,
+                'beginning_balance': beginning_balance,
+                'ending_balance': ending_balance,
+                'net_flow': net_flow,
+                'cash_in': cash_in,
+                'cash_out': [operating_expenses[i] + debt_payments[i] for i in range(12)],
+                'lowest_cash': lowest_cash,
+                'trough_month': trough_month,
+                'minimum_loc': minimum_loc,
+                'recommended_loc': recommended_loc,
+                'stress_loc': stress_loc,
+                'total_cash_in': total_cash_in,
+                'total_cash_out': total_cash_out,
+                'avg_monthly_net': avg_monthly_net,
+                'negative_months': negative_months,
+                'starting_cash': starting_cash,
+                'buffer_percentage': buffer_percentage,
+                'existing_loc_limit': existing_loc_limit
+            }
+            
+            st.success("✅ Cash trough analysis complete! See results below.")
+        
+        # Display Results
+        if 'cash_trough_results' in st.session_state:
+            results = st.session_state.cash_trough_results
+            
+            st.markdown("---")
+            st.header("📈 Cash Trough Analysis Results")
+            
+            # Key Metrics Row
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    label="Minimum LOC Required",
+                    value=f"${results['minimum_loc']:,.0f}",
+                    help="Minimum LOC to cover deepest cash trough"
+                )
+            
+            with col2:
+                st.metric(
+                    label="Recommended LOC",
+                    value=f"${results['recommended_loc']:,.0f}",
+                    help=f"Minimum LOC + {results['buffer_percentage']}% safety buffer"
+                )
+            
+            with col3:
+                st.metric(
+                    label="Stress-Test LOC",
+                    value=f"${results['stress_loc']:,.0f}",
+                    help="Conservative estimate for worst-case scenarios (15% higher)"
+                )
+            
+            with col4:
+                st.metric(
+                    label="Lowest Cash Position",
+                    value=f"${results['lowest_cash']:,.0f}",
+                    delta=f"Month: {results['trough_month']}",
+                    delta_color="off"
+                )
+            
+            # LOC Gap Analysis
+            if results['existing_loc_limit'] > 0:
+                st.markdown("---")
+                st.subheader("📊 LOC Gap Analysis")
+                
+                gap = results['recommended_loc'] - results['existing_loc_limit']
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric(
+                        label="Current LOC Limit",
+                        value=f"${results['existing_loc_limit']:,.0f}"
+                    )
+                
+                with col2:
+                    if gap > 0:
+                        st.metric(
+                            label="LOC Shortfall",
+                            value=f"${gap:,.0f}",
+                            delta=f"{(gap/results['existing_loc_limit'])*100:.1f}% increase needed",
+                            delta_color="normal"
+                        )
+                    else:
+                        st.metric(
+                            label="LOC Surplus",
+                            value=f"${abs(gap):,.0f}",
+                            delta="Adequate coverage",
+                            delta_color="inverse"
+                        )
+                
+                with col3:
+                    coverage_ratio = (results['existing_loc_limit'] / results['recommended_loc'] * 100) if results['recommended_loc'] > 0 else 100
+                    st.metric(
+                        label="Coverage Ratio",
+                        value=f"{coverage_ratio:.1f}%",
+                        help="Existing LOC as % of recommended LOC"
+                    )
+            
+            # Cash Flow Statistics
+            st.markdown("---")
+            st.subheader("📊 Cash Flow Statistics")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    label="Total 12-Month Cash In",
+                    value=f"${results['total_cash_in']:,.0f}"
+                )
+            
+            with col2:
+                st.metric(
+                    label="Total 12-Month Cash Out",
+                    value=f"${results['total_cash_out']:,.0f}"
+                )
+            
+            with col3:
+                st.metric(
+                    label="Avg Monthly Net Flow",
+                    value=f"${results['avg_monthly_net']:,.0f}",
+                    delta="Surplus" if results['avg_monthly_net'] > 0 else "Deficit",
+                    delta_color="normal" if results['avg_monthly_net'] > 0 else "inverse"
+                )
+            
+            with col4:
+                st.metric(
+                    label="Negative Cash Months",
+                    value=f"{results['negative_months']} of 12",
+                    help="Months where ending cash balance is negative"
+                )
+            
+            # Key Insights
+            st.markdown("---")
+            st.subheader("🔑 Key Insights")
+            
+            insights = []
+            
+            # Cash trough insight
+            if results['lowest_cash'] < 0:
+                insights.append(f"💧 **Cash Trough**: Your lowest projected cash position is **${results['lowest_cash']:,.0f}** in **{results['trough_month']}**. This is the primary driver of your LOC requirement.")
+            else:
+                insights.append(f"✅ **Positive Cash Flow**: Your cash balance remains positive throughout the 12-month period, with a low of **${results['lowest_cash']:,.0f}** in **{results['trough_month']}**.")
+            
+            # Monthly flow insight
+            if results['avg_monthly_net'] < 0:
+                insights.append(f"⚠️ **Cash Burn**: Your average monthly net cash flow is **${results['avg_monthly_net']:,.0f}**, indicating ongoing cash consumption. Consider revenue growth or expense reduction strategies.")
+            else:
+                insights.append(f"✅ **Cash Generation**: Your average monthly net cash flow is **${results['avg_monthly_net']:,.0f}**, indicating positive cash generation over the period.")
+            
+            # Negative months insight
+            if results['negative_months'] > 0:
+                insights.append(f"📉 **Liquidity Pressure**: You have **{results['negative_months']} months** with negative cash balances. The recommended LOC provides a safety net for these periods.")
+            
+            # Buffer insight
+            if results['buffer_percentage'] > 0:
+                buffer_amount = results['recommended_loc'] - results['minimum_loc']
+                insights.append(f"🛡️ **Safety Buffer**: The {results['buffer_percentage']}% buffer adds **${buffer_amount:,.0f}** to cover unexpected expenses or revenue shortfalls.")
+            
+            # LOC gap insight
+            if results['existing_loc_limit'] > 0:
+                if gap > 0:
+                    insights.append(f"📊 **LOC Gap**: Your current LOC limit of **${results['existing_loc_limit']:,.0f}** falls short by **${gap:,.0f}**. Consider requesting an increase to ensure adequate liquidity coverage.")
+                else:
+                    insights.append(f"✅ **Adequate Coverage**: Your current LOC limit of **${results['existing_loc_limit']:,.0f}** provides adequate coverage for your projected cash needs.")
+            
+            for insight in insights:
+                st.markdown(insight)
+            
+            # Visualizations
+            st.markdown("---")
+            st.subheader("📊 Cash Flow Visualizations")
+            
+            # Cash Balance Chart
+            fig_balance = go.Figure()
+            
+            fig_balance.add_trace(go.Scatter(
+                x=results['months'],
+                y=results['ending_balance'],
+                mode='lines+markers',
+                name='Ending Cash Balance',
+                line=dict(color='#1f77b4', width=3),
+                marker=dict(size=8)
+            ))
+            
+            # Add zero line
+            fig_balance.add_hline(y=0, line_dash="dash", line_color="red", 
+                                  annotation_text="Zero Cash Line", annotation_position="right")
+            
+            # Highlight lowest point
+            fig_balance.add_trace(go.Scatter(
+                x=[results['trough_month']],
+                y=[results['lowest_cash']],
+                mode='markers',
+                name='Cash Trough',
+                marker=dict(size=15, color='red', symbol='star')
+            ))
+            
+            fig_balance.update_layout(
+                title="12-Month Cash Balance Projection",
+                xaxis_title="Month",
+                yaxis_title="Cash Balance ($)",
+                hovermode='x unified',
+                showlegend=True,
+                height=400
+            )
+            
+            st.plotly_chart(fig_balance, use_container_width=True)
+            
+            # Monthly Net Flow Chart
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig_net = go.Figure()
+                
+                colors = ['green' if net >= 0 else 'red' for net in results['net_flow']]
+                
+                fig_net.add_trace(go.Bar(
+                    x=results['months'],
+                    y=results['net_flow'],
+                    name='Net Cash Flow',
+                    marker_color=colors
+                ))
+                
+                fig_net.add_hline(y=0, line_dash="dash", line_color="gray")
+                
+                fig_net.update_layout(
+                    title="Monthly Net Cash Flow",
+                    xaxis_title="Month",
+                    yaxis_title="Net Cash Flow ($)",
+                    hovermode='x unified',
+                    showlegend=False,
+                    height=350
+                )
+                
+                st.plotly_chart(fig_net, use_container_width=True)
+            
+            with col2:
+                # Funding Gap Chart (negative balances only)
+                funding_gaps = [abs(bal) if bal < 0 else 0 for bal in results['ending_balance']]
+                
+                fig_gap = go.Figure()
+                
+                fig_gap.add_trace(go.Bar(
+                    x=results['months'],
+                    y=funding_gaps,
+                    name='Funding Gap',
+                    marker_color='#d62728'
+                ))
+                
+                fig_gap.update_layout(
+                    title="Monthly Funding Gaps (LOC Draw Required)",
+                    xaxis_title="Month",
+                    yaxis_title="Funding Gap ($)",
+                    hovermode='x unified',
+                    showlegend=False,
+                    height=350
+                )
+                
+                st.plotly_chart(fig_gap, use_container_width=True)
+            
+            # Detailed Monthly Table
+            st.markdown("---")
+            st.subheader("📋 Detailed Monthly Cash Flow")
+            
+            detailed_df = pd.DataFrame({
+                'Month': results['months'],
+                'Beginning Cash': results['beginning_balance'],
+                'Cash In': results['cash_in'],
+                'Cash Out': results['cash_out'],
+                'Net Flow': results['net_flow'],
+                'Ending Cash': results['ending_balance']
+            })
+            
+            # Format currency columns
+            for col in ['Beginning Cash', 'Cash In', 'Cash Out', 'Net Flow', 'Ending Cash']:
+                detailed_df[col] = detailed_df[col].apply(lambda x: f"${x:,.0f}")
+            
+            st.dataframe(detailed_df, use_container_width=True, hide_index=True)
+            
+            # Export Functionality
+            st.markdown("---")
+            st.subheader("💾 Export Analysis")
+            
+            export_data = {
+                'business_name': st.session_state.project_name,
+                'analysis_date': datetime.now().isoformat(),
+                'starting_cash': results['starting_cash'],
+                'buffer_percentage': results['buffer_percentage'],
+                'existing_loc_limit': results['existing_loc_limit'],
+                'results': {
+                    'minimum_loc': results['minimum_loc'],
+                    'recommended_loc': results['recommended_loc'],
+                    'stress_loc': results['stress_loc'],
+                    'lowest_cash': results['lowest_cash'],
+                    'trough_month': results['trough_month'],
+                    'negative_months': results['negative_months'],
+                    'avg_monthly_net': results['avg_monthly_net']
+                },
+                'monthly_cash_flow': edited_cash_flow.to_dict('records')
+            }
+            
+            json_str = json.dumps(export_data, indent=2)
+            
+            st.download_button(
+                label="📥 Download Cash Trough Analysis (JSON)",
+                data=json_str,
+                file_name=f"cash_trough_analysis_{st.session_state.project_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.json",
+                mime="application/json"
+            )
+        
+        else:
+            st.info("👆 Configure your parameters and enter your 12-month cash flow projection above, then click 'Calculate' to see results.")
 
 
 if __name__ == "__main__":
