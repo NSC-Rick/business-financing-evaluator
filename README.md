@@ -11,7 +11,34 @@ This tool helps small business owners, lenders, and advisors:
 - Assess financing readiness with a comprehensive scoring system
 - Identify areas for improvement in business finances
 
-## 🚀 Features
+## � LOC Sizing Tool (NEW)
+
+A standalone **cash-flow-first** line of credit sizing tool that estimates LOC needs based on cash flow timing, cash trough analysis, and risk buffering — not flat revenue percentages.
+
+### Three Analysis Modes
+
+1. **Quick Estimate** - Rapid timing gap analysis for users with limited data
+2. **Guided Estimate** - Synthetic 12-month cash curve generation (recommended)
+3. **Full Monthly Cash Flow** - Detailed analysis using actual monthly projections
+
+### Key Features
+
+- **Cash Flow Timing Analysis**: Models collection delays and payment terms
+- **Seasonal Weakness Modeling**: Adjusts for weak revenue months
+- **Risk Buffering**: Conservative/Moderate/Aggressive buffer profiles
+- **Visual Analytics**: Interactive charts showing cash balance trends and funding gaps
+- **LOC Gap Analysis**: Compares recommended LOC to existing credit lines
+- **Export Functionality**: Download JSON summary of analysis
+
+### Running the LOC Sizing Tool
+
+```bash
+streamlit run loc_sizing_tool.py
+```
+
+See `docs/windsurf_reports/LOC_Sizing_Tool_Report.md` for detailed documentation.
+
+## �🚀 Features
 
 ### Core Functionality
 - **Business Profile Analysis**: Revenue, industry, business type, and history evaluation
